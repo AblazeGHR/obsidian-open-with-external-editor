@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-open-with-external-editor",
+  "version": "1.0.0",
+  "description": "Right-click any file or folder in Obsidian to open it in a configurable external editor (VSCode, etc.), jumping to the current cursor position when the file is already open.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "deploy": "npm run build && cp main.js manifest.json styles.css versions.json ../obisidian_plugin/test-vault/.obsidian/plugins/open-with-external-editor/"
+  },
+  "author": "AblazeGHR",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.19.0",
+    "obsidian": "^1.4.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.0"
+  }
+}

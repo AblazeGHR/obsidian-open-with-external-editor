@@ -1,0 +1,10 @@
+{
+	"id": "open-with-external-editor",
+	"name": "Open with External Editor",
+	"version": "1.0.0",
+	"minAppVersion": "1.4.0",
+	"description": "Right-click any file or folder to open it in a configurable external editor (VSCode, etc.), jumping to the current cursor position when the file is already open in Obsidian.",
+	"author": "AblazeGHR",
+	"authorUrl": "https://github.com/AblazeGHR",
+	"isDesktopOnly": true
+}
