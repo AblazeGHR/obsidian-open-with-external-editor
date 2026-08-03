@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "deploy": "npm run build && cp main.js manifest.json styles.css versions.json ../obisidian_plugin/test-vault/.obsidian/plugins/open-with-external-editor/"
+    "deploy": "npm run build && cp main.js manifest.json styles.css versions.json ../test-vault/.obsidian/plugins/open-with-external-editor/"
   },
   "author": "AblazeGHR",
   "license": "MIT",

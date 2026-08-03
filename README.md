@@ -39,6 +39,7 @@ Open **Settings → Open with External Editor**. Each opener has:
   - `{path}` — absolute path of the file/folder (always available)
   - `{line}` — 1-based cursor line in Obsidian (empty for folders / files not currently open)
   - `{col}` — 1-based cursor column in Obsidian (empty for folders / files not currently open)
+- **Hotkey** *(optional)* — a keyboard shortcut that opens the current file with this editor, e.g. `Ctrl+Shift+O`. Use `Mod` for a platform-aware modifier (Ctrl on Windows/Linux, Cmd on macOS); also accepts `Cmd`, `Alt`/`Option`, `Shift`. Separate multiple shortcuts with a comma (e.g. `Ctrl+O, Ctrl+Shift+O`). Leave empty for none. The shortcut can still be changed or overridden in **Settings → Hotkeys**.
 
 A flag that should only appear together with `{line}`/`{col}` (such as VSCode's `-g`) goes on the line **directly above** the token that uses them. The plugin automatically drops both when line/col is unavailable, so folders and closed files still open normally.
 

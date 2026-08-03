@@ -4,9 +4,11 @@ If you want to view the source, please visit the github repository of this plugi
 */
 
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -20,6 +22,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -30,6 +40,8 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var import_child_process = require("child_process");
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
 var DEFAULT_OPENERS = [
   {
     id: "vscode",
@@ -41,6 +53,63 @@ var DEFAULT_OPENERS = [
 ];
 function uid() {
   return Math.random().toString(36).slice(2, 10);
+}
+var MODIFIER_ALIASES = {
+  mod: "Mod",
+  ctrl: "Ctrl",
+  control: "Ctrl",
+  cmd: "Meta",
+  command: "Meta",
+  meta: "Meta",
+  win: "Meta",
+  super: "Meta",
+  alt: "Alt",
+  option: "Alt",
+  opt: "Alt",
+  shift: "Shift"
+};
+function parseHotkey(input) {
+  if (!input)
+    return null;
+  const parts = input.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0)
+    return null;
+  const hotkeys = [];
+  for (const part of parts) {
+    const rawTokens = part.split("+");
+    if (rawTokens.some((t) => t.trim() === ""))
+      return null;
+    const tokens = rawTokens.map((t) => t.trim());
+    const key = tokens[tokens.length - 1];
+    if (!key)
+      return null;
+    const modifiers = [];
+    for (const m of tokens.slice(0, -1)) {
+      const norm = MODIFIER_ALIASES[m.toLowerCase()];
+      if (!norm)
+        return null;
+      if (!modifiers.includes(norm))
+        modifiers.push(norm);
+    }
+    hotkeys.push({
+      modifiers,
+      key: key.length === 1 ? key.toUpperCase() : key
+    });
+  }
+  return hotkeys;
+}
+var hotkeyRefreshTimers = /* @__PURE__ */ new Map();
+function scheduleHotkeyRefresh(plugin, opener) {
+  const existing = hotkeyRefreshTimers.get(opener.id);
+  if (existing)
+    window.clearTimeout(existing);
+  hotkeyRefreshTimers.set(
+    opener.id,
+    window.setTimeout(() => {
+      hotkeyRefreshTimers.delete(opener.id);
+      plugin.refreshOpenerCommand(opener);
+    }, 300)
+  );
 }
 var OpenInVSCodePlugin = class extends import_obsidian.Plugin {
   constructor() {
@@ -61,22 +130,41 @@ var OpenInVSCodePlugin = class extends import_obsidian.Plugin {
       })
     );
     for (const opener of this.settings.openers) {
-      this.addCommand({
-        id: `open-current-${opener.id}`,
-        name: `Open current file in ${opener.name || "external editor"}`,
-        callback: () => {
-          const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
-          if (!view || !view.file) {
-            new import_obsidian.Notice("No active file to open.");
-            return;
-          }
-          this.openWith(opener, view.file);
-        }
-      });
+      this.registerOpenerCommand(opener);
     }
     this.addSettingTab(new OpenInVSCodeSettingTab(this.app, this));
   }
   onunload() {
+  }
+  /** Register (or re-register) the command-palette command for one opener. */
+  registerOpenerCommand(opener) {
+    const hotkeys = parseHotkey(opener.hotkey);
+    this.addCommand({
+      id: `open-current-${opener.id}`,
+      name: `Open current file in ${opener.name || "external editor"}`,
+      hotkeys: hotkeys ?? void 0,
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+        if (!view || !view.file) {
+          new import_obsidian.Notice("No active file to open.");
+          return;
+        }
+        this.openWith(opener, view.file);
+      }
+    });
+  }
+  /** Re-apply an opener's command so a hotkey change takes effect immediately. */
+  refreshOpenerCommand(opener) {
+    if (!this.settings.openers.includes(opener))
+      return;
+    this.removeOpenerCommand(opener);
+    this.registerOpenerCommand(opener);
+  }
+  /** Remove a dynamically registered opener command (no-op on older Obsidian). */
+  removeOpenerCommand(opener) {
+    if (typeof this.removeCommand === "function") {
+      this.removeCommand(`open-current-${opener.id}`);
+    }
   }
   getOpenLeafForFile(file) {
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
@@ -138,16 +226,10 @@ var OpenInVSCodePlugin = class extends import_obsidian.Plugin {
     }
     const args = this.buildArgs(opener, absPath, line, col);
     const command = (opener.command || "code").trim();
-    const full = [command, ...args.map(quoteIfNeeded)].join(" ");
-    try {
-      const child = (0, import_child_process.spawn)(full, { shell: true, stdio: "ignore" });
-      child.on("error", (err) => {
-        new import_obsidian.Notice(
-          `Failed to run "${command}". Check the command in settings. (${err.message})`
-        );
-      });
-    } catch (err) {
-      new import_obsidian.Notice(`Failed to launch: ${err.message}`);
+    if (process.platform === "win32") {
+      launchOnWindows(command, args);
+    } else {
+      spawnProcess(command, args, void 0, command);
     }
   }
   async loadSettings() {
@@ -162,8 +244,144 @@ var OpenInVSCodePlugin = class extends import_obsidian.Plugin {
     await this.saveData(this.settings);
   }
 };
-function quoteIfNeeded(token) {
-  return /\s/.test(token) && !/^".*"$/.test(token) ? `"${token}"` : token;
+function launchOnWindows(command, args) {
+  void resolveWindowsCommand(command).then((resolved) => {
+    if (/\.(cmd|bat)$/i.test(resolved)) {
+      const target = parseBatchTarget(resolved);
+      if (target) {
+        spawnProcess(target.file, [...target.args, ...args], target.env, command);
+      } else {
+        if (args.some((a) => a.includes("&"))) {
+          new import_obsidian.Notice(
+            `Path contains "&" but "${command}" is a batch file, which cmd.exe cannot pass "&" arguments to. Configure the editor's .exe directly instead.`
+          );
+        }
+        spawnViaCmd(resolved, args, command);
+      }
+    } else {
+      spawnProcess(resolved, args, void 0, command);
+    }
+  });
+}
+function resolveWindowsCommand(command) {
+  if (/[\\/]/.test(command) || /^[a-zA-Z]:/.test(command)) {
+    return Promise.resolve(path.resolve(command));
+  }
+  return new Promise((resolve2) => {
+    (0, import_child_process.execFile)(
+      "where.exe",
+      [command],
+      { windowsHide: true, timeout: 5e3 },
+      (err, stdout) => {
+        if (err) {
+          resolve2(command);
+          return;
+        }
+        const lines = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        const exe = lines.find((l) => /\.exe$/i.test(l));
+        const batch = exe ?? lines.find((l) => /\.(cmd|bat)$/i.test(l));
+        resolve2(batch ?? lines[0] ?? command);
+      }
+    );
+  });
+}
+function parseBatchTarget(batchPath) {
+  const dir = path.dirname(batchPath);
+  let content;
+  try {
+    content = fs.readFileSync(batchPath, "utf8");
+  } catch {
+    return null;
+  }
+  const lines = content.split(/\r?\n/);
+  const vars = {};
+  let pendingIf = null;
+  const expand = (t) => {
+    let s = t.replace(/%([^%]+)%/g, (_, v) => {
+      const key = v.trim();
+      if (key in vars)
+        return vars[key];
+      return process.env[key] ?? "";
+    });
+    s = s.replace(/%~dp0/g, dir + "\\");
+    return path.normalize(s);
+  };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (pendingIf && /^\)/.test(line)) {
+      pendingIf = null;
+      continue;
+    }
+    if (!pendingIf) {
+      const cond = line.match(/^if\s+"([^"]*)"\s*==\s*"([^"]*)"\s*\(?\s*$/i);
+      if (cond) {
+        pendingIf = { condTrue: expand(cond[1]) === expand(cond[2]) };
+        continue;
+      }
+    }
+    const setQuoted = line.match(/^set\s+"([^"=]+)=([^"]*)"\s*$/i);
+    const setPlain = line.match(/^set\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/i);
+    if (setQuoted || setPlain) {
+      const name = (setQuoted ? setQuoted[1] : setPlain[1]).trim();
+      const value = setQuoted ? setQuoted[2] : setPlain[2];
+      if (!pendingIf || pendingIf.condTrue)
+        vars[name] = value;
+      continue;
+    }
+    if (pendingIf && !pendingIf.condTrue)
+      continue;
+    if (!line || /^(@?echo|rem|::|setlocal|endlocal|exit|if |goto|call\s+exit)/i.test(line))
+      continue;
+    const words = [];
+    for (const w of line.matchAll(/"([^"]*)"|([^\s"]+)/g)) {
+      words.push(w[1] !== void 0 ? w[1] : w[2]);
+    }
+    const exeIdx = words.findIndex((t) => /\.exe$/i.test(expand(t)));
+    if (exeIdx === -1)
+      continue;
+    const file = expand(words[exeIdx]);
+    if (!/\.exe$/i.test(file))
+      continue;
+    const fixedArgs = words.slice(exeIdx + 1).map(expand).filter((t) => t && t !== "%*");
+    return { file, args: fixedArgs, env: { ...vars } };
+  }
+  return null;
+}
+function spawnProcess(file, args, extraEnv, label) {
+  let child;
+  try {
+    child = (0, import_child_process.spawn)(file, args, {
+      stdio: "ignore",
+      windowsHide: true,
+      env: extraEnv ? { ...process.env, ...extraEnv } : void 0
+    });
+  } catch (err) {
+    new import_obsidian.Notice(`Failed to launch: ${err.message}`);
+    return;
+  }
+  child.on("error", (err) => {
+    new import_obsidian.Notice(`Failed to run "${label}". Check the command in settings. (${err.message})`);
+  });
+}
+function spawnViaCmd(command, args, label) {
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const tokens = [command, ...args].map(
+    (t) => /^".*"$/.test(t) ? t : `"${t}"`
+  );
+  let child;
+  try {
+    child = (0, import_child_process.spawn)(comspec, ["/d", "/s", "/c", `"${tokens.join(" ")}"`], {
+      windowsVerbatimArguments: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+  } catch (err) {
+    new import_obsidian.Notice(`Failed to launch: ${err.message}`);
+    return;
+  }
+  child.on("error", (err) => {
+    new import_obsidian.Notice(`Failed to run "${label}". Check the command in settings. (${err.message})`);
+  });
 }
 var OpenInVSCodeSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -203,10 +421,22 @@ var OpenInVSCodeSettingTab = class extends import_obsidian.PluginSettingTab {
         t.inputEl.rows = 3;
         t.inputEl.style.width = "100%";
       });
+      new import_obsidian.Setting(block).setName("Hotkey").setDesc(
+        "Optional shortcut to open the current file, e.g. Ctrl+Shift+O. Use Mod for Ctrl on Windows/Linux and Cmd on macOS; separate multiple shortcuts with a comma."
+      ).addText((t) => {
+        t.setValue(opener.hotkey ?? "").setPlaceholder("Ctrl+Shift+O").onChange(async (v) => {
+          this.plugin.settings.openers[index].hotkey = v.trim();
+          await this.plugin.saveSettings();
+          scheduleHotkeyRefresh(this.plugin, this.plugin.settings.openers[index]);
+        });
+      });
       new import_obsidian.Setting(block).setName("").addButton(
         (b) => b.setButtonText("Delete").setWarning().onClick(async () => {
-          this.plugin.settings.openers.splice(index, 1);
+          const removed = this.plugin.settings.openers.splice(index, 1)[0];
           await this.plugin.saveSettings();
+          if (removed) {
+            this.plugin.removeOpenerCommand(removed);
+          }
           this.display();
         })
       );
@@ -217,7 +447,8 @@ var OpenInVSCodeSettingTab = class extends import_obsidian.PluginSettingTab {
           id: uid(),
           name: "Open in \u2026",
           command: "code",
-          args: "{path}"
+          args: "{path}",
+          hotkey: ""
         });
         await this.plugin.saveSettings();
         this.display();
